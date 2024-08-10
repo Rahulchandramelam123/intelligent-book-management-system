@@ -15,6 +15,7 @@ COPY requirements.txt /app/
 # Install PostgreSQL development package
 RUN apt-get update && \
     apt-get install -y \
+    gunicorn \
     python3 \
     python3-pip \
     python3-venv \
@@ -30,9 +31,9 @@ RUN pip install --upgrade pip setuptools wheel && \
 COPY . /app/
 
 # Set the default command to run the application
-CMD ["python3", "__main__.py"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app:flask_app"]
 
 
 
 # Expose the port the app runs on
-EXPOSE 5000
+EXPOSE 8000
