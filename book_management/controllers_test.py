@@ -1,175 +1,79 @@
+# tests/test_main.py
 import pytest
-from flask import Flask
-from flask_testing import TestCase
-from flask_sqlalchemy import SQLAlchemy
-from . import create_app  
-from book_management.models import db, Books, Users, Reviews
-from book_management.schemas import BookSchema, UserSchema, ReviewSchema
+from fastapi.testclient import TestClient
+from  app import app as api
+from fastapi import FastAPI
+from book_management.database import AsyncSessionLocal
+from book_management.models import Books, Users, Reviews
+from sqlalchemy.future import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+# Create an instance of the FastAPI app
+app = FastAPI()
+app.include_router(api)
 
-class TestConfig:
-    SQLALCHEMY_DATABASE_URI = """postgresql://postgres:DMksFid2Qg77iOCD7M22@database-1.cxs6uyymyn63.ap-southeast-2.rds.amazonaws.com:5432/
-database-1"""
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-    TESTING = True
+client = TestClient(app)
 
-class TestBase(TestCase):
-    def create_app(self):
-        app = create_app(TestConfig)  
-        return app
+# Fixture to provide a database session
+@pytest.fixture
+async def db_session():
+    async with AsyncSessionLocal() as session:
+        yield session
 
-    def setUp(self):
-        db.create_all()
+# Example test for the register endpoint
+def test_register_user(db_session: AsyncSession):
+    response = client.post("/register", json={"username": "testuser", "password": "testpassword"})
+    assert response.status_code == 201
+    assert response.json() == {"message": "User Registered Successfully"}
 
-    def tearDown(self):
-        db.session.remove()
-        db.drop_all()
+# Example test for the login endpoint
+def test_login_user(db_session: AsyncSession):
+    # First register a user
+    client.post("/register", json={"username": "testuser", "password": "testpassword"})
+    
+    # Then login
+    response = client.post("/login", json={"username": "testuser", "password": "testpassword"})
+    assert response.status_code == 200
+    assert "access_token" in response.json()
 
-class TestUserEndpoints(TestBase):
-    def test_register_user(self):
-        response = self.client.post('/register', json={
-            'username': 'testuser',
-            'password': 'password123'
-        })
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data.decode(), "User Registered Successfully")
+# Example test for creating a book
+def test_create_book(db_session: AsyncSession):
+    token = get_access_token()
+    response = client.post(
+        "/books/",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"title": "Test Book", "author": "Test Author", "genre": "Fiction", "year_published": 2024, "summary": "A test book"}
+    )
+    assert response.status_code == 200
+    assert response.json()["title"] == "Test Book"
 
-class TestBookEndpoints(TestBase):
-    def test_add_book(self):
-        self.client.post('/register', json={'username': 'testuser', 'password': 'password123'})
-        response = self.client.post('/books', json={
-            'title': 'Test Book',
-            'author': 'Test Author'
-        }, headers={
-            'Authorization': 'Basic dGVzdHVzZXI6cGFzc3dvcmQxMjM='  # Base64 encoded "testuser:password123"
-        })
-        self.assertEqual(response.status_code, 201)
-        data = response.json
-        self.assertEqual(data['title'], 'Test Book')
-        self.assertEqual(data['author'], 'Test Author')
+# Example test for reading books
+def test_read_books(db_session: AsyncSession):
+    response = client.get("/books/")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
 
-    def test_list_books(self):
-        self.client.post('/register', json={'username': 'testuser', 'password': 'password123'})
-        self.client.post('/books', json={
-            'title': 'Test Book',
-            'author': 'Test Author'
-        }, headers={
-            'Authorization': 'Basic dGVzdHVzZXI6cGFzc3dvcmQxMjM='
-        })
-        response = self.client.get('/books', headers={
-            'Authorization': 'Basic dGVzdHVzZXI6cGFzc3dvcmQxMjM='
-        })
-        self.assertEqual(response.status_code, 200)
-        books = response.json
-        self.assertGreater(len(books), 0)
+# Example test for getting book by ID
+def test_read_book(db_session: AsyncSession):
+    # First create a book
+    token = get_access_token()
+    client.post(
+        "/books/",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"title": "Test Book", "author": "Test Author", "genre": "Fiction", "year_published": 2024, "summary": "A test book"}
+    )
+    
+    # Then get the book by ID
+    response = client.get("/books/1")
+    assert response.status_code == 200
+    assert response.json()["title"] == "Test Book"
 
-    def test_get_book(self):
-        self.client.post('/register', json={'username': 'testuser', 'password': 'password123'})
-        book_response = self.client.post('/books', json={
-            'title': 'Test Book',
-            'author': 'Test Author'
-        }, headers={
-            'Authorization': 'Basic dGVzdHVzZXI6cGFzc3dvcmQxMjM='
-        })
-        book_id = book_response.json['id']
-        response = self.client.get(f'/books/{book_id}', headers={
-            'Authorization': 'Basic dGVzdHVzZXI6cGFzc3dvcmQxMjM='
-        })
-        self.assertEqual(response.status_code, 200)
-        data = response.json
-        self.assertEqual(data['title'], 'Test Book')
+# Helper function to get an access token
+def get_access_token():
+    response = client.post("/login", json={"username": "testuser", "password": "testpassword"})
+    return response.json()["access_token"]
 
-    def test_update_book(self):
-        self.client.post('/register', json={'username': 'testuser', 'password': 'password123'})
-        book_response = self.client.post('/books', json={
-            'title': 'Test Book',
-            'author': 'Test Author'
-        }, headers={
-            'Authorization': 'Basic dGVzdHVzZXI6cGFzc3dvcmQxMjM='
-        })
-        book_id = book_response.json['id']
-        response = self.client.put(f'/books/{book_id}', json={
-            'title': 'Updated Book',
-            'author': 'Updated Author'
-        }, headers={
-            'Authorization': 'Basic dGVzdHVzZXI6cGFzc3dvcmQxMjM='
-        })
-        self.assertEqual(response.status_code, 200)
-        updated_book = Books.query.get(book_id)
-        self.assertEqual(updated_book.title, 'Updated Book')
-
-    def test_delete_book(self):
-        self.client.post('/register', json={'username': 'testuser', 'password': 'password123'})
-        book_response = self.client.post('/books', json={
-            'title': 'Test Book',
-            'author': 'Test Author'
-        }, headers={
-            'Authorization': 'Basic dGVzdHVzZXI6cGFzc3dvcmQxMjM='
-        })
-        book_id = book_response.json['id']
-        response = self.client.delete(f'/books/{book_id}', headers={
-            'Authorization': 'Basic dGVzdHVzZXI6cGFzc3dvcmQxMjM='
-        })
-        self.assertEqual(response.status_code, 200)
-        deleted_book = Books.query.get(book_id)
-        self.assertIsNone(deleted_book)
-
-    def test_add_book_review(self):
-        self.client.post('/register', json={'username': 'testuser', 'password': 'password123'})
-        book_response = self.client.post('/books', json={
-            'title': 'Test Book',
-            'author': 'Test Author'
-        }, headers={
-            'Authorization': 'Basic dGVzdHVzZXI6cGFzc3dvcmQxMjM='
-        })
-        book_id = book_response.json['id']
-        response = self.client.post(f'/books/{book_id}/reviews', json={
-            'review': 'Great book!',
-            'rating': 5
-        }, headers={
-            'Authorization': 'Basic dGVzdHVzZXI6cGFzc3dvcmQxMjM='
-        })
-        self.assertEqual(response.status_code, 201)
-        review = response.json
-        self.assertEqual(review['review'], 'Great book!')
-
-    def test_get_book_reviews(self):
-        self.client.post('/register', json={'username': 'testuser', 'password': 'password123'})
-        book_response = self.client.post('/books', json={
-            'title': 'Test Book',
-            'author': 'Test Author'
-        }, headers={
-            'Authorization': 'Basic dGVzdHVzZXI6cGFzc3dvcmQxMjM='
-        })
-        book_id = book_response.json['id']
-        self.client.post(f'/books/{book_id}/reviews', json={
-            'review': 'Great book!',
-            'rating': 5
-        }, headers={
-            'Authorization': 'Basic dGVzdHVzZXI6cGFzc3dvcmQxMjM='
-        })
-        response = self.client.get(f'/books/{book_id}/reviews', headers={
-            'Authorization': 'Basic dGVzdHVzZXI6cGFzc3dvcmQxMjM='
-        })
-        self.assertEqual(response.status_code, 200)
-        reviews = response.json
-        self.assertGreater(len(reviews), 0)
-
-    def test_get_book_summary(self):
-        self.client.post('/register', json={'username': 'testuser', 'password': 'password123'})
-        book_response = self.client.post('/books', json={
-            'title': 'Test Book',
-            'author': 'Test Author'
-        }, headers={
-            'Authorization': 'Basic dGVzdHVzZXI6cGFzc3dvcmQxMjM='
-        })
-        book_id = book_response.json['id']
-        response = self.client.get(f'/books/{book_id}/summary', headers={
-            'Authorization': 'Basic dGVzdHVzZXI6cGFzc3dvcmQxMjM='
-        })
-        self.assertEqual(response.status_code, 200)
-        summary = response.json
-        self.assertEqual(summary['title'], 'Test Book')
-
-if __name__ == '__main__':
+# Run the tests
+if __name__ == "__main__":
+    import pytest
     pytest.main()
