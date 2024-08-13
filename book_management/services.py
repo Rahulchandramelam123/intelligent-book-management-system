@@ -1,104 +1,101 @@
-from flask import  request, jsonify,Response
-from book_management.database import db
-from book_management.models import Books,Reviews,Users
-from book_management.schemas import *
+# crud.py
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from fastapi.responses import JSONResponse
+from book_management.models import Users, Books, Reviews
+from book_management.schemas import BookSchema
+from book_management.database import AsyncSessionLocal
 
-def commit_data(data):
+async def commit_data(session: AsyncSession, data):
     try:
-        db.session.add(data)
-        db.session.commit()
+        session.add(data)
+        await session.commit()
     except Exception as e:
+        await session.rollback()
         raise e
+
+async def register_user(data: dict):
+    async with AsyncSessionLocal() as session:
+        user = Users(**data)
+        try:
+            await commit_data(session, user)
+        except Exception as e:
+            raise e
+
+async def add_book(data: dict):
+    async with AsyncSessionLocal() as session:
+        new_book = Books(**data)
+        try:
+            await commit_data(session, new_book)
+        except Exception as e:
+            raise e
+        return data
+
+async def get_book_reviews(id: int):
+    async with AsyncSessionLocal() as session:
+        try:
+            result = await session.execute(select(Reviews).filter_by(book_id=id))
+            reviews = result.scalars().all()
+            if not reviews:
+                return {'message': 'No reviews found for this book'}
+            return reviews
+        except Exception as e:
+            print(f"An error occurred: {str(e)}")
+            return {'message': 'An internal error occurred'}
+
+async def add_book_review(data: dict, id: int):
+    async with AsyncSessionLocal() as session:
+        if not data:
+            return {'message': 'No input data provided'}
+
+        # Find the book by ID
+        result = await session.execute(select(Books).filter_by(id=id))
+        book = result.scalars().first()
+        if not book:
+            return {'message': 'Book not found'}
         
-def register_user(data):
-    user = Users(**data)
-    try:
-        commit_data(user)
-    except Exception as e:
-        raise e
+        # Create a new review
+        new_review = Reviews(**data)
+        try:
+            await commit_data(session, new_review)
+        except Exception as e:
+            raise e
 
-def add_book(data):
-    new_book = Books(**data)
-    try:
-        commit_data(new_book)
-    except Exception as e:
-        raise e
-    return new_book
+        # Return the newly created review
+        return data
 
-def get_book_reviews(id):
-    try:
-        # Query to get reviews for the specified book
-        reviews = Reviews.query.filter_by(book_id=id).all()  # Execute the query
-        if not reviews:
-            print("No reviews found for this book")
-            return jsonify({'message': 'No reviews found for this book'})
+async def delete_book_by_id(id: int):
+    async with AsyncSessionLocal() as session:
+        try:
+            result = await session.execute(select(Books).filter_by(id=id))
+            book = result.scalars().first()
+            if not book:
+                return {'message': 'Book not found'}
 
-        # Return the list of reviews
-        return reviews
+            await session.delete(book)
+            await session.commit()
+            return {'message': 'Book deleted successfully'}
+        except Exception as e:
+            await session.rollback()
+            raise e
 
-    except Exception as e:
-        # Log the exception (for production use proper logging)
-        print(f"An error occurred: {str(e)}")
+async def update_book_by_id(data: dict, id: int):
+    async with AsyncSessionLocal() as session:
+        if not data:
+            return {'message': 'No input data provided'}
 
-        # Return a generic error message
-        return jsonify({'message': 'An internal error occurred'})
-    
+        try:
+            result = await session.execute(select(Books).filter_by(id=id))
+            book = result.scalars().first()
+            if not book:
+                return {'message': 'Book not found'}
 
-def add_book_review(data,id):
-    if not data:
-        return jsonify({'message': 'No input data provided'})
+            # Update book details
+            for key, value in data.items():
+                setattr(book, key, value)
 
-    # Find the book by ID
-    book = Books.query.filter_by(id=id).first()
-    if not book:
-        return jsonify({'message': 'Book not found'})
-    # Create a new review
-    new_review = Reviews(**data)
-    print("new review",new_review)
-    try:
-        commit_data(new_review)
-    except Exception as e:
-        raise e
-
-    # Return the newly created review
-    return jsonify(data)
-
-def delete_book_by_id(id):
-    book = Books.query.filter_by(id=id).first()
-    if not book:
-        return jsonify({'message': 'Book not found'})
-
-    # Delete the book
-    try:
-        db.session.delete(book)
-        db.session.commit()
-    except Exception as e:
-        raise e
-
-    return jsonify({'message': 'Book deleted successfully'})
-
-
-def update_book_by_id(data,id):
-    if not data:
-        return jsonify({'message': 'No input data provided'})
-
-    # Find the existing book
-    book = Books.query.filter_by(id=id).first()
-    if not book:
-        return jsonify({'message': 'Book not found'})
-
-    # Update book details
-    book.title = data.get('title', book.title)
-    book.author = data.get('author', book.author)
-    book.genre = data.get('genre', book.genre)
-    book.year_published = data.get('year_published', book.year_published)
-    book.summary = data.get('summary', book.summary)
-
-    # Commit changes
-    try:
-        db.session.commit()
-    except Exception as e:
-        raise e
-
-    # Return the updated book
-    return jsonify(BookSchema().dump(book))
+            await session.commit()
+            return data
+        except Exception as e:
+            await session.rollback()
+            raise e
