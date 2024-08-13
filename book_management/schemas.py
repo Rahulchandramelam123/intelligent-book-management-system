@@ -1,21 +1,25 @@
-from marshmallow import Schema, fields
+from pydantic import BaseModel
+# Schemas
+class BookSchema(BaseModel):
+    title: str
+    author: str
+    genre: str
+    year_published: int
+    summary: str
 
-class BookSchema(Schema):
-    title = fields.Str(required=True)
-    author = fields.Str(required=True)
-    genre = fields.Str(required=True)
-    year_published = fields.Integer(required=True)
-    summary = fields.Str(required=True)
+    class Config:
+        orm_mode = True
 
-class UserSchema(Schema):
-    username = fields.Str(required=True)
-    password = fields.Str(required=True)
+class UserSchema(BaseModel):
+    username: str
+    password: str
 
-class ReviewSchema(Schema):
-    user_id = fields.Integer(required=True)
-    book_id = fields.Integer(required=True)
-    review_text = fields.Str(required=True)
-    rating = fields.Integer(required=True)
+class ReviewSchema(BaseModel):
+    book_id : int
+    user_id : int
+    review_text: str
+    rating: int
 
-class BookSummarySchema(Schema):
-    summary = fields.Str(required=True)
+class BookSummaryRatingSchema(BaseModel):
+    summary : str
+    average_rating : float
