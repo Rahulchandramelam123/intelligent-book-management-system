@@ -31,7 +31,7 @@ RUN pip install --upgrade pip setuptools wheel && \
 COPY . /app/
 
 # Set the default command to run the application
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app:flask_app"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
 
 
 
