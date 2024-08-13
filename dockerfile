@@ -15,7 +15,7 @@ COPY requirements.txt /app/
 # Install PostgreSQL development package
 RUN apt-get update && \
     apt-get install -y \
-    gunicorn \
+    uvicorn \
     python3 \
     python3-pip \
     python3-venv \
